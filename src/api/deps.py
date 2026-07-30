@@ -3,6 +3,7 @@ from typing import Annotated, Callable
 
 from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
+import redis.asyncio as redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import CredentialsException, PermissionDeniedException
@@ -11,6 +12,7 @@ from src.core.security import decode_token
 from src.database import get_db
 from src.models.user import User
 from src.models.workspace import WorkspaceMember
+from src.redis_client import get_redis_client
 from src.repositories.user_repository import UserRepository
 from src.repositories.workspace_repository import WorkspaceMemberRepository
 
@@ -18,6 +20,11 @@ oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/api/v1/auth/login",
     auto_error=True,
 )
+
+
+async def get_redis() -> redis.Redis:
+    """Dependency providing async Redis client instance."""
+    return await get_redis_client()
 
 
 async def get_current_user(
