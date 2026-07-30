@@ -2,9 +2,6 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from src.api.deps import get_current_user, get_db, require_workspace_role
 from src.core.exceptions import (
@@ -14,9 +11,11 @@ from src.core.exceptions import (
     error_response_schema,
 )
 from src.core.rbac import ResourceRole
-from src.models.project import Project
 from src.models.user import User
-from src.models.workspace import Workspace, WorkspaceMember
+from src.models.workspace import WorkspaceMember
+from src.repositories.project_repository import ProjectRepository
+from src.repositories.user_repository import UserRepository
+from src.repositories.workspace_repository import WorkspaceMemberRepository, WorkspaceRepository
 from src.schemas.common import MessageResponse
 from src.schemas.project import ProjectCreate, ProjectRead
 from src.schemas.workspace import (
@@ -43,21 +42,25 @@ async def create_workspace(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> WorkspaceRead:
-    workspace = Workspace(
-        name=workspace_in.name,
-        description=workspace_in.description,
-        owner_id=current_user.id,
+    workspace_repo = WorkspaceRepository(db)
+    member_repo = WorkspaceMemberRepository(db)
+
+    workspace = await workspace_repo.create(
+        {
+            "name": workspace_in.name,
+            "description": workspace_in.description,
+            "owner_id": current_user.id,
+        }
     )
-    db.add(workspace)
-    await db.flush()
 
     # Creator automatically becomes OWNER member
-    owner_member = WorkspaceMember(
-        workspace_id=workspace.id,
-        user_id=current_user.id,
-        role=ResourceRole.OWNER,
+    await member_repo.create(
+        {
+            "workspace_id": workspace.id,
+            "user_id": current_user.id,
+            "role": ResourceRole.OWNER,
+        }
     )
-    db.add(owner_member)
     await db.commit()
     await db.refresh(workspace)
 
@@ -78,20 +81,15 @@ async def get_workspace(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> WorkspaceRead:
-    stmt = select(Workspace).where(Workspace.id == id)
-    result = await db.execute(stmt)
-    workspace = result.scalar_one_or_none()
+    workspace_repo = WorkspaceRepository(db)
+    member_repo = WorkspaceMemberRepository(db)
 
+    workspace = await workspace_repo.get_by_id(id)
     if workspace is None:
         raise NotFoundException(detail="Workspace not found")
 
-    # Member check
-    member_stmt = select(WorkspaceMember).where(
-        WorkspaceMember.workspace_id == id,
-        WorkspaceMember.user_id == current_user.id,
-    )
-    member_res = await db.execute(member_stmt)
-    if member_res.scalar_one_or_none() is None:
+    member = await member_repo.get_member(id, current_user.id)
+    if member is None:
         raise PermissionDeniedException(detail="You are not a member of this workspace")
 
     return WorkspaceRead.model_validate(workspace)
@@ -114,38 +112,27 @@ async def add_workspace_member(
     db: Annotated[AsyncSession, Depends(get_db)],
     _: Annotated[WorkspaceMember, Depends(require_workspace_role(ResourceRole.ADMIN))],
 ) -> WorkspaceMemberRead:
-    # Verify user exists
-    user_stmt = select(User).where(User.id == member_in.user_id)
-    user_res = await db.execute(user_stmt)
-    target_user = user_res.scalar_one_or_none()
+    user_repo = UserRepository(db)
+    member_repo = WorkspaceMemberRepository(db)
+
+    target_user = await user_repo.get_by_id(member_in.user_id)
     if target_user is None:
         raise NotFoundException(detail="Target user not found")
 
-    # Check existing membership
-    existing_stmt = select(WorkspaceMember).where(
-        WorkspaceMember.workspace_id == id,
-        WorkspaceMember.user_id == member_in.user_id,
-    )
-    existing_res = await db.execute(existing_stmt)
-    if existing_res.scalar_one_or_none() is not None:
+    existing_member = await member_repo.get_member(id, member_in.user_id)
+    if existing_member is not None:
         raise ConflictException(detail="User is already a member of this workspace")
 
-    new_member = WorkspaceMember(
-        workspace_id=id,
-        user_id=member_in.user_id,
-        role=member_in.role, # Defaults to VIEWER
+    new_member = await member_repo.create(
+        {
+            "workspace_id": id,
+            "user_id": member_in.user_id,
+            "role": member_in.role,  # Defaults to VIEWER
+        }
     )
-    db.add(new_member)
     await db.commit()
 
-    # Query back with user relationship loaded
-    stmt = (
-        select(WorkspaceMember)
-        .options(selectinload(WorkspaceMember.user))
-        .where(WorkspaceMember.id == new_member.id)
-    )
-    res = await db.execute(stmt)
-    created_member = res.scalar_one()
+    created_member = await member_repo.get_by_id(new_member.id)
 
     return WorkspaceMemberRead.model_validate(created_member)
 
@@ -165,20 +152,16 @@ async def remove_workspace_member(
     db: Annotated[AsyncSession, Depends(get_db)],
     _: Annotated[WorkspaceMember, Depends(require_workspace_role(ResourceRole.ADMIN))],
 ) -> MessageResponse:
-    stmt = select(WorkspaceMember).where(
-        WorkspaceMember.workspace_id == id,
-        WorkspaceMember.user_id == user_id,
-    )
-    res = await db.execute(stmt)
-    member = res.scalar_one_or_none()
+    member_repo = WorkspaceMemberRepository(db)
 
+    member = await member_repo.get_member(id, user_id)
     if member is None:
         raise NotFoundException(detail="Workspace member not found")
 
     if member.role == ResourceRole.OWNER:
         raise PermissionDeniedException(detail="Cannot remove workspace owner")
 
-    await db.delete(member)
+    await member_repo.delete(member)
     await db.commit()
 
     return MessageResponse(message="Workspace member successfully removed")
@@ -201,13 +184,16 @@ async def create_workspace_project(
     current_user: Annotated[User, Depends(get_current_user)],
     _: Annotated[WorkspaceMember, Depends(require_workspace_role(ResourceRole.EDITOR))],
 ) -> ProjectRead:
-    project = Project(
-        workspace_id=id,
-        name=project_in.name,
-        description=project_in.description,
-        created_by_id=current_user.id,
+    project_repo = ProjectRepository(db)
+
+    project = await project_repo.create(
+        {
+            "workspace_id": id,
+            "name": project_in.name,
+            "description": project_in.description,
+            "created_by_id": current_user.id,
+        }
     )
-    db.add(project)
     await db.commit()
     await db.refresh(project)
 
