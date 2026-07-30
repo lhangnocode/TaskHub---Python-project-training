@@ -3,17 +3,19 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from src.api.deps import get_current_user, get_db
 from src.core.exceptions import NotFoundException, PermissionDeniedException, error_response_schema
 from src.core.rbac import ResourceRole, has_role_permission
 from src.models.project import Project
-from src.models.task import Task, TaskPriority, TaskStatus
+from src.models.task import TaskPriority, TaskStatus
 from src.models.user import User
 from src.models.workspace import WorkspaceMember
+from src.repositories.project_repository import ProjectRepository
+from src.repositories.task_repository import TaskRepository
+from src.repositories.user_repository import UserRepository
+from src.repositories.workspace_repository import WorkspaceMemberRepository
 from src.schemas.common import PaginatedResponse
 from src.schemas.task import TaskCreate, TaskRead
 from src.services.cache_service import (
@@ -33,22 +35,14 @@ async def check_project_access(
     db: AsyncSession,
     required_role: ResourceRole = ResourceRole.VIEWER,
 ) -> tuple[Project, WorkspaceMember]:
-    stmt = (
-        select(Project)
-        .where(Project.id == project_id)
-    )
-    res = await db.execute(stmt)
-    project = res.scalar_one_or_none()
+    project_repo = ProjectRepository(db)
+    member_repo = WorkspaceMemberRepository(db)
+
+    project = await project_repo.get_by_id(project_id)
     if project is None:
         raise NotFoundException(detail="Project not found")
 
-    member_stmt = select(WorkspaceMember).where(
-        WorkspaceMember.workspace_id == project.workspace_id,
-        WorkspaceMember.user_id == user_id,
-    )
-    member_res = await db.execute(member_stmt)
-    member = member_res.scalar_one_or_none()
-
+    member = await member_repo.get_member(project.workspace_id, user_id)
     if member is None:
         raise PermissionDeniedException(detail="You are not a member of this workspace")
 
@@ -80,7 +74,7 @@ async def get_project_tasks(
     limit: int = Query(10, ge=1, le=100, description="Items per page (max 100)"),
 ) -> PaginatedResponse[TaskRead]:
     # Check access permission
-    project, _ = await check_project_access(id, current_user.id, db, ResourceRole.VIEWER)
+    _, _ = await check_project_access(id, current_user.id, db, ResourceRole.VIEWER)
 
     # Redis Caching Check
     cache_key = build_project_tasks_cache_key(
@@ -96,38 +90,16 @@ async def get_project_tasks(
     if cached_data:
         return PaginatedResponse[TaskRead].model_validate(cached_data)
 
-    # Build DB Query
-    query = select(Task).where(Task.project_id == id)
-    count_query = select(func.count()).select_from(Task).where(Task.project_id == id)
-
-    if status:
-        query = query.where(Task.status == status)
-        count_query = count_query.where(Task.status == status)
-    if priority:
-        query = query.where(Task.priority == priority)
-        count_query = count_query.where(Task.priority == priority)
-    if assignee_id:
-        query = query.where(Task.assignee_id == assignee_id)
-        count_query = count_query.where(Task.assignee_id == assignee_id)
-
-    # Total count
-    total_res = await db.execute(count_query)
-    total = total_res.scalar() or 0
-
-    # Paginate and load relationships
+    task_repo = TaskRepository(db)
     offset = (page - 1) * limit
-    query = (
-        query.options(
-            selectinload(Task.assignee),
-            selectinload(Task.reporter),
-        )
-        .order_by(Task.created_at.desc())
-        .offset(offset)
-        .limit(limit)
+    tasks, total = await task_repo.get_project_tasks_filtered(
+        project_id=id,
+        status=status,
+        priority=priority,
+        assignee_id=assignee_id,
+        skip=offset,
+        limit=limit,
     )
-
-    result = await db.execute(query)
-    tasks = result.scalars().all()
 
     items = [TaskRead.model_validate(task) for task in tasks]
     total_pages = math.ceil(total / limit) if limit > 0 else 0
@@ -165,25 +137,27 @@ async def create_project_task(
 ) -> TaskRead:
     project, _ = await check_project_access(id, current_user.id, db, ResourceRole.EDITOR)
 
+    user_repo = UserRepository(db)
+    task_repo = TaskRepository(db)
+
     assignee: User | None = None
     if task_in.assignee_id:
-        assignee_stmt = select(User).where(User.id == task_in.assignee_id)
-        assignee_res = await db.execute(assignee_stmt)
-        assignee = assignee_res.scalar_one_or_none()
+        assignee = await user_repo.get_by_id(task_in.assignee_id)
         if assignee is None:
             raise NotFoundException(detail="Assignee user not found")
 
-    task = Task(
-        project_id=id,
-        title=task_in.title,
-        description=task_in.description,
-        status=task_in.status,
-        priority=task_in.priority,
-        assignee_id=task_in.assignee_id,
-        reporter_id=current_user.id,
-        due_date=task_in.due_date,
+    new_task = await task_repo.create(
+        {
+            "project_id": id,
+            "title": task_in.title,
+            "description": task_in.description,
+            "status": task_in.status,
+            "priority": task_in.priority,
+            "assignee_id": task_in.assignee_id,
+            "reporter_id": current_user.id,
+            "due_date": task_in.due_date,
+        }
     )
-    db.add(task)
     await db.commit()
 
     # Invalidate Redis cache for this project's task queries
@@ -195,20 +169,13 @@ async def create_project_task(
             background_tasks=background_tasks,
             recipient_email=assignee.email,
             recipient_name=assignee.full_name,
-            task_title=task.title,
+            task_title=new_task.title,
             project_name=project.name,
         )
 
     # Re-query task with relationships loaded
-    stmt = (
-        select(Task)
-        .options(
-            selectinload(Task.assignee),
-            selectinload(Task.reporter),
-        )
-        .where(Task.id == task.id)
-    )
-    res = await db.execute(stmt)
-    created_task = res.scalar_one()
+    created_task = await task_repo.get_by_id_with_relations(new_task.id)
+    if created_task is None:
+        raise NotFoundException(detail="Created task not found")
 
     return TaskRead.model_validate(created_task)

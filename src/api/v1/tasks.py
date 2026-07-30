@@ -2,9 +2,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from src.api.deps import get_current_user, get_db
 from src.core.exceptions import (
@@ -14,12 +12,15 @@ from src.core.exceptions import (
     error_response_schema,
 )
 from src.core.rbac import ResourceRole
-from src.models.comment import Comment
-from src.models.label import Label, TaskLabel
 from src.models.project import Project
 from src.models.task import Task
 from src.models.user import User
 from src.models.workspace import WorkspaceMember
+from src.repositories.comment_repository import CommentRepository
+from src.repositories.label_repository import LabelRepository
+from src.repositories.task_repository import TaskRepository
+from src.repositories.user_repository import UserRepository
+from src.repositories.workspace_repository import WorkspaceMemberRepository
 from src.schemas.comment import CommentCreate, CommentRead
 from src.schemas.common import MessageResponse
 from src.schemas.task import TaskRead, TaskUpdate
@@ -35,29 +36,15 @@ async def get_task_and_check_access(
     db: AsyncSession,
     required_role: ResourceRole = ResourceRole.VIEWER,
 ) -> tuple[Task, Project, WorkspaceMember]:
-    stmt = (
-        select(Task)
-        .options(
-            selectinload(Task.project),
-            selectinload(Task.assignee),
-            selectinload(Task.reporter),
-        )
-        .where(Task.id == task_id)
-    )
-    res = await db.execute(stmt)
-    task = res.scalar_one_or_none()
+    task_repo = TaskRepository(db)
+    member_repo = WorkspaceMemberRepository(db)
 
+    task = await task_repo.get_by_id_with_relations(task_id)
     if task is None:
         raise NotFoundException(detail="Task not found")
 
     project = task.project
-    member_stmt = select(WorkspaceMember).where(
-        WorkspaceMember.workspace_id == project.workspace_id,
-        WorkspaceMember.user_id == user_id,
-    )
-    member_res = await db.execute(member_stmt)
-    member = member_res.scalar_one_or_none()
-
+    member = await member_repo.get_member(project.workspace_id, user_id)
     if member is None:
         raise PermissionDeniedException(detail="You are not a member of this workspace")
 
@@ -84,29 +71,19 @@ async def update_task(
         id, current_user.id, db, ResourceRole.EDITOR
     )
 
+    task_repo = TaskRepository(db)
+    user_repo = UserRepository(db)
+
     old_assignee_id = task.assignee_id
     new_assignee: User | None = None
 
     if task_update.assignee_id is not None and task_update.assignee_id != old_assignee_id:
-        user_stmt = select(User).where(User.id == task_update.assignee_id)
-        user_res = await db.execute(user_stmt)
-        new_assignee = user_res.scalar_one_or_none()
+        new_assignee = await user_repo.get_by_id(task_update.assignee_id)
         if new_assignee is None:
             raise NotFoundException(detail="New assignee user not found")
-        task.assignee_id = task_update.assignee_id
 
-    if task_update.title is not None:
-        task.title = task_update.title
-    if task_update.description is not None:
-        task.description = task_update.description
-    if task_update.status is not None:
-        task.status = task_update.status
-    if task_update.priority is not None:
-        task.priority = task_update.priority
-    if task_update.due_date is not None:
-        task.due_date = task_update.due_date
-
-    db.add(task)
+    update_attrs = task_update.model_dump(exclude_unset=True)
+    await task_repo.update(task, update_attrs)
     await db.commit()
 
     # Invalidate Redis Cache
@@ -123,16 +100,9 @@ async def update_task(
         )
 
     # Re-query updated task
-    stmt = (
-        select(Task)
-        .options(
-            selectinload(Task.assignee),
-            selectinload(Task.reporter),
-        )
-        .where(Task.id == id)
-    )
-    res = await db.execute(stmt)
-    updated_task = res.scalar_one()
+    updated_task = await task_repo.get_by_id_with_relations(id)
+    if updated_task is None:
+        raise NotFoundException(detail="Task not found")
 
     return TaskRead.model_validate(updated_task)
 
@@ -154,6 +124,7 @@ async def delete_task(
     task, project, member = await get_task_and_check_access(
         id, current_user.id, db, ResourceRole.VIEWER
     )
+    task_repo = TaskRepository(db)
 
     # Allow delete if user is reporter/assignee or holds ADMIN/OWNER role
     is_owner_or_admin = member.role in (ResourceRole.OWNER, ResourceRole.ADMIN)
@@ -164,7 +135,7 @@ async def delete_task(
             detail="You do not have permission to delete this task"
         )
 
-    await db.delete(task)
+    await task_repo.delete(task)
     await db.commit()
 
     # Invalidate Redis Cache
@@ -193,29 +164,19 @@ async def attach_label_to_task(
     task, project, _ = await get_task_and_check_access(
         id, current_user.id, db, ResourceRole.EDITOR
     )
+    label_repo = LabelRepository(db)
 
     # Verify label exists under workspace
-    label_stmt = select(Label).where(
-        Label.id == label_id,
-        Label.workspace_id == project.workspace_id,
-    )
-    label_res = await db.execute(label_stmt)
-    label = label_res.scalar_one_or_none()
-
-    if label is None:
+    label = await label_repo.get_by_id(label_id)
+    if label is None or label.workspace_id != project.workspace_id:
         raise NotFoundException(detail="Label not found in workspace")
 
     # Check existing association
-    existing_stmt = select(TaskLabel).where(
-        TaskLabel.task_id == id,
-        TaskLabel.label_id == label_id,
-    )
-    existing_res = await db.execute(existing_stmt)
-    if existing_res.scalar_one_or_none() is not None:
+    existing_task_label = await label_repo.get_task_label(id, label_id)
+    if existing_task_label is not None:
         raise ConflictException(detail="Label is already attached to task")
 
-    task_label = TaskLabel(task_id=id, label_id=label_id)
-    db.add(task_label)
+    await label_repo.attach_label_to_task(id, label_id)
     await db.commit()
 
     await invalidate_project_tasks_cache(project.id)
@@ -242,21 +203,19 @@ async def create_task_comment(
     task, project, _ = await get_task_and_check_access(
         id, current_user.id, db, ResourceRole.VIEWER
     )
+    comment_repo = CommentRepository(db)
 
-    comment = Comment(
-        task_id=id,
-        author_id=current_user.id,
-        content=comment_in.content,
+    comment = await comment_repo.create(
+        {
+            "task_id": id,
+            "author_id": current_user.id,
+            "content": comment_in.content,
+        }
     )
-    db.add(comment)
     await db.commit()
 
-    stmt = (
-        select(Comment)
-        .options(selectinload(Comment.author))
-        .where(Comment.id == comment.id)
-    )
-    res = await db.execute(stmt)
-    created_comment = res.scalar_one()
+    created_comment = await comment_repo.get_by_id(comment.id)
+    if created_comment is None:
+        raise NotFoundException(detail="Comment not found")
 
     return CommentRead.model_validate(created_comment)
