@@ -2,12 +2,19 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
 from src.api.v1.router import api_v1_router
 from src.config import settings
+from src.core.exceptions import (
+    global_unhandled_exception_handler,
+    http_exception_handler,
+    validation_exception_handler,
+)
+from src.core.middleware import RequestLoggingMiddleware
 from src.redis_client import close_redis_client, get_redis_client
 
 logging.basicConfig(
@@ -20,7 +27,6 @@ logger = logging.getLogger("taskhub")
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Starting up TaskHub REST API backend service...")
-    # Initialize Redis connection on startup
     try:
         redis_conn = await get_redis_client()
         await redis_conn.ping()
@@ -45,6 +51,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Custom Middlewares
+app.add_middleware(RequestLoggingMiddleware)
+
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
@@ -53,6 +62,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Global Exception Handlers
+app.add_exception_handler(HTTPException, http_exception_handler) # type: ignore[arg-type]
+app.add_exception_handler(RequestValidationError, validation_exception_handler) # type: ignore[arg-type]
+app.add_exception_handler(Exception, global_unhandled_exception_handler)
 
 # Attach API v1 routes
 app.include_router(api_v1_router)
@@ -69,7 +83,6 @@ def custom_openapi() -> dict:
         routes=app.routes,
     )
 
-    # Ensure Bearer Security Scheme is documented in Swagger / ReDoc
     components = openapi_schema.setdefault("components", {})
     security_schemes = components.setdefault("securitySchemes", {})
     security_schemes["BearerAuth"] = {
