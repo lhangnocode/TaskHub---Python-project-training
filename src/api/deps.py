@@ -3,7 +3,6 @@ from typing import Annotated, Callable
 
 from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import CredentialsException, PermissionDeniedException
@@ -12,6 +11,8 @@ from src.core.security import decode_token
 from src.database import get_db
 from src.models.user import User
 from src.models.workspace import WorkspaceMember
+from src.repositories.user_repository import UserRepository
+from src.repositories.workspace_repository import WorkspaceMemberRepository
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/api/v1/auth/login",
@@ -40,9 +41,8 @@ async def get_current_user(
     except ValueError:
         raise CredentialsException(detail="Invalid user ID format in token")
 
-    stmt = select(User).where(User.id == user_id)
-    result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
+    user_repo = UserRepository(db)
+    user = await user_repo.get_by_id(user_id)
 
     if user is None:
         raise CredentialsException(detail="User not found")
@@ -62,12 +62,8 @@ def require_workspace_role(
         db: Annotated[AsyncSession, Depends(get_db)],
         current_user: Annotated[User, Depends(get_current_user)],
     ) -> WorkspaceMember:
-        stmt = select(WorkspaceMember).where(
-            WorkspaceMember.workspace_id == workspace_id,
-            WorkspaceMember.user_id == current_user.id,
-        )
-        result = await db.execute(stmt)
-        member = result.scalar_one_or_none()
+        member_repo = WorkspaceMemberRepository(db)
+        member = await member_repo.get_member(workspace_id, current_user.id)
 
         if member is None:
             raise PermissionDeniedException(
