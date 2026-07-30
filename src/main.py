@@ -23,6 +23,33 @@ logging.basicConfig(
 )
 logger = logging.getLogger("taskhub")
 
+openapi_tags = [
+    {
+        "name": "Authentication",
+        "description": "User registration, JWT token generation, refresh, and session management.",
+    },
+    {
+        "name": "Users",
+        "description": "User profile retrieval and account update endpoints.",
+    },
+    {
+        "name": "Workspaces",
+        "description": "Workspace administration, RBAC member management (OWNER/ADMIN/EDITOR/VIEWER), and project creation.",
+    },
+    {
+        "name": "Projects & Tasks",
+        "description": "Project task listing with filtering (status, priority, assignee), pagination, and Redis caching.",
+    },
+    {
+        "name": "Tasks",
+        "description": "Task state updates, deletion, label assignment, and user commenting.",
+    },
+    {
+        "name": "Health",
+        "description": "Service health check endpoint.",
+    },
+]
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -43,11 +70,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="TaskHub API - Enterprise Task & Project Management Service",
+    description=(
+        "TaskHub API is an enterprise-grade, high-performance task & project management service. "
+        "Built with FastAPI, Async SQLAlchemy 2.0, PostgreSQL 16, Redis 7, and Docker Compose."
+    ),
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
+    openapi_tags=openapi_tags,
     lifespan=lifespan,
 )
 
@@ -81,6 +112,7 @@ def custom_openapi() -> dict:
         version=app.version,
         description=app.description,
         routes=app.routes,
+        tags=openapi_tags,
     )
 
     components = openapi_schema.setdefault("components", {})
@@ -89,7 +121,7 @@ def custom_openapi() -> dict:
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
-        "description": "Enter JWT Bearer token format: `Bearer <JWT_TOKEN>`",
+        "description": "Provide JWT Access Token format: `Bearer <token>`",
     }
 
     openapi_schema["security"] = [{"BearerAuth": []}]
