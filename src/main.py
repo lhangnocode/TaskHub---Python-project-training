@@ -2,12 +2,19 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
 from src.api.v1.router import api_v1_router
 from src.config import settings
+from src.core.exceptions import (
+    global_unhandled_exception_handler,
+    http_exception_handler,
+    validation_exception_handler,
+)
+from src.core.middleware import RequestLoggingMiddleware
 from src.redis_client import close_redis_client, get_redis_client
 
 logging.basicConfig(
@@ -16,11 +23,37 @@ logging.basicConfig(
 )
 logger = logging.getLogger("taskhub")
 
+openapi_tags = [
+    {
+        "name": "Authentication",
+        "description": "User registration, JWT token generation, refresh, and session management.",
+    },
+    {
+        "name": "Users",
+        "description": "User profile retrieval and account update endpoints.",
+    },
+    {
+        "name": "Workspaces",
+        "description": "Workspace administration, RBAC member management (OWNER/ADMIN/EDITOR/VIEWER), and project creation.",
+    },
+    {
+        "name": "Projects & Tasks",
+        "description": "Project task listing with filtering (status, priority, assignee), pagination, and Redis caching.",
+    },
+    {
+        "name": "Tasks",
+        "description": "Task state updates, deletion, label assignment, and user commenting.",
+    },
+    {
+        "name": "Health",
+        "description": "Service health check endpoint.",
+    },
+]
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Starting up TaskHub REST API backend service...")
-    # Initialize Redis connection on startup
     try:
         redis_conn = await get_redis_client()
         await redis_conn.ping()
@@ -37,13 +70,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="TaskHub API - Enterprise Task & Project Management Service",
+    description=(
+        "TaskHub API is an enterprise-grade, high-performance task & project management service. "
+        "Built with FastAPI, Async SQLAlchemy 2.0, PostgreSQL 16, Redis 7, and Docker Compose."
+    ),
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
+    openapi_tags=openapi_tags,
     lifespan=lifespan,
 )
+
+# Custom Middlewares
+app.add_middleware(RequestLoggingMiddleware)
 
 # CORS configuration
 app.add_middleware(
@@ -53,6 +93,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Global Exception Handlers
+app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
+app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore[arg-type]
+app.add_exception_handler(Exception, global_unhandled_exception_handler)
 
 # Attach API v1 routes
 app.include_router(api_v1_router)
@@ -67,16 +112,16 @@ def custom_openapi() -> dict:
         version=app.version,
         description=app.description,
         routes=app.routes,
+        tags=openapi_tags,
     )
 
-    # Ensure Bearer Security Scheme is documented in Swagger / ReDoc
     components = openapi_schema.setdefault("components", {})
     security_schemes = components.setdefault("securitySchemes", {})
     security_schemes["BearerAuth"] = {
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
-        "description": "Enter JWT Bearer token format: `Bearer <JWT_TOKEN>`",
+        "description": "Provide JWT Access Token format: `Bearer <token>`",
     }
 
     openapi_schema["security"] = [{"BearerAuth": []}]

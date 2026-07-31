@@ -1,6 +1,11 @@
+import logging
 from typing import Any
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+logger = logging.getLogger("taskhub.exceptions")
 
 
 class CredentialsException(HTTPException):
@@ -54,3 +59,44 @@ def error_response_schema(status_code: int, description: str) -> dict[str, Any]:
             }
         },
     }
+
+
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", "unknown")
+    headers = getattr(exc, "headers", None)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": exc.detail,
+            "request_id": request_id,
+        },
+        headers=headers,
+    )
+
+
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", "unknown")
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "detail": "Validation Error",
+            "errors": exc.errors(),
+            "request_id": request_id,
+        },
+    )
+
+
+async def global_unhandled_exception_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.exception("[%s] Unhandled exception occurred: %s", request_id[:8], exc)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "detail": "Internal Server Error",
+            "request_id": request_id,
+        },
+    )

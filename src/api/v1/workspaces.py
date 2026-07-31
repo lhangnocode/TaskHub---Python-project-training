@@ -16,7 +16,10 @@ from src.models.user import User
 from src.models.workspace import WorkspaceMember
 from src.repositories.project_repository import ProjectRepository
 from src.repositories.user_repository import UserRepository
-from src.repositories.workspace_repository import WorkspaceMemberRepository, WorkspaceRepository
+from src.repositories.workspace_repository import (
+    WorkspaceMemberRepository,
+    WorkspaceRepository,
+)
 from src.schemas.common import MessageResponse
 from src.schemas.project import ProjectCreate, ProjectRead
 from src.schemas.workspace import (
@@ -263,7 +266,9 @@ async def remove_workspace_member(
     status_code=status.HTTP_201_CREATED,
     responses={
         401: error_response_schema(401, "Unauthorized"),
-        403: error_response_schema(403, "Permission Denied (Requires EDITOR/ADMIN/OWNER)"),
+        403: error_response_schema(
+            403, "Permission Denied (Requires EDITOR/ADMIN/OWNER)"
+        ),
         404: error_response_schema(404, "Workspace Not Found"),
     },
 )
