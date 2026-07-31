@@ -95,8 +95,8 @@ app.add_middleware(
 )
 
 # Global Exception Handlers
-app.add_exception_handler(HTTPException, http_exception_handler) # type: ignore[arg-type]
-app.add_exception_handler(RequestValidationError, validation_exception_handler) # type: ignore[arg-type]
+app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
+app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore[arg-type]
 app.add_exception_handler(Exception, global_unhandled_exception_handler)
 
 # Attach API v1 routes

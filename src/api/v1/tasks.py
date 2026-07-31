@@ -77,7 +77,10 @@ async def update_task(
     old_assignee_id = task.assignee_id
     new_assignee: User | None = None
 
-    if task_update.assignee_id is not None and task_update.assignee_id != old_assignee_id:
+    if (
+        task_update.assignee_id is not None
+        and task_update.assignee_id != old_assignee_id
+    ):
         new_assignee = await user_repo.get_by_id(task_update.assignee_id)
         if new_assignee is None:
             raise NotFoundException(detail="New assignee user not found")
@@ -128,7 +131,9 @@ async def delete_task(
 
     # Allow delete if user is reporter/assignee or holds ADMIN/OWNER role
     is_owner_or_admin = member.role in (ResourceRole.OWNER, ResourceRole.ADMIN)
-    is_author = task.reporter_id == current_user.id or task.assignee_id == current_user.id
+    is_author = (
+        task.reporter_id == current_user.id or task.assignee_id == current_user.id
+    )
 
     if not (is_owner_or_admin or is_author):
         raise PermissionDeniedException(

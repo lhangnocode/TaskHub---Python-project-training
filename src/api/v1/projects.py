@@ -6,7 +6,11 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db
-from src.core.exceptions import NotFoundException, PermissionDeniedException, error_response_schema
+from src.core.exceptions import (
+    NotFoundException,
+    PermissionDeniedException,
+    error_response_schema,
+)
 from src.core.rbac import ResourceRole, has_role_permission
 from src.models.project import Project
 from src.models.task import TaskPriority, TaskStatus
@@ -124,7 +128,9 @@ async def get_project_tasks(
     status_code=status.HTTP_201_CREATED,
     responses={
         401: error_response_schema(401, "Unauthorized"),
-        403: error_response_schema(403, "Permission Denied (Requires EDITOR/ADMIN/OWNER)"),
+        403: error_response_schema(
+            403, "Permission Denied (Requires EDITOR/ADMIN/OWNER)"
+        ),
         404: error_response_schema(404, "Project or Assignee Not Found"),
     },
 )
@@ -135,7 +141,9 @@ async def create_project_task(
     current_user: Annotated[User, Depends(get_current_user)],
     background_tasks: BackgroundTasks,
 ) -> TaskRead:
-    project, _ = await check_project_access(id, current_user.id, db, ResourceRole.EDITOR)
+    project, _ = await check_project_access(
+        id, current_user.id, db, ResourceRole.EDITOR
+    )
 
     user_repo = UserRepository(db)
     task_repo = TaskRepository(db)

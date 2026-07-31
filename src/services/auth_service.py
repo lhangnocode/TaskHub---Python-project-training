@@ -1,6 +1,10 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.exceptions import BadRequestException, ConflictException, CredentialsException
+from src.core.exceptions import (
+    BadRequestException,
+    ConflictException,
+    CredentialsException,
+)
 from src.core.security import (
     create_access_token,
     create_refresh_token,
@@ -33,9 +37,7 @@ async def register_user(db: AsyncSession, user_in: UserCreate) -> User:
     return user
 
 
-async def authenticate_user(
-    db: AsyncSession, email: str, password: str
-) -> Token:
+async def authenticate_user(db: AsyncSession, email: str, password: str) -> Token:
     user_repo = UserRepository(db)
     user = await user_repo.get_by_email(email)
 

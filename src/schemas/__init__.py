@@ -9,7 +9,9 @@ from src.schemas.workspace import (
     WorkspaceCreate,
     WorkspaceMemberAdd,
     WorkspaceMemberRead,
+    WorkspaceMemberRoleUpdate,
     WorkspaceRead,
+    WorkspaceUpdate,
 )
 
 __all__ = [
@@ -19,8 +21,10 @@ __all__ = [
     "UserRead",
     "UserUpdate",
     "WorkspaceCreate",
+    "WorkspaceUpdate",
     "WorkspaceRead",
     "WorkspaceMemberAdd",
+    "WorkspaceMemberRoleUpdate",
     "WorkspaceMemberRead",
     "ProjectCreate",
     "ProjectRead",

@@ -2,6 +2,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.deps import get_current_user, get_db, require_workspace_role
 from src.core.exceptions import (
@@ -15,14 +16,19 @@ from src.models.user import User
 from src.models.workspace import WorkspaceMember
 from src.repositories.project_repository import ProjectRepository
 from src.repositories.user_repository import UserRepository
-from src.repositories.workspace_repository import WorkspaceMemberRepository, WorkspaceRepository
+from src.repositories.workspace_repository import (
+    WorkspaceMemberRepository,
+    WorkspaceRepository,
+)
 from src.schemas.common import MessageResponse
 from src.schemas.project import ProjectCreate, ProjectRead
 from src.schemas.workspace import (
     WorkspaceCreate,
     WorkspaceMemberAdd,
     WorkspaceMemberRead,
+    WorkspaceMemberRoleUpdate,
     WorkspaceRead,
+    WorkspaceUpdate,
 )
 
 router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
@@ -95,6 +101,61 @@ async def get_workspace(
     return WorkspaceRead.model_validate(workspace)
 
 
+@router.patch(
+    "/{id}",
+    response_model=WorkspaceRead,
+    responses={
+        401: error_response_schema(401, "Unauthorized"),
+        403: error_response_schema(403, "Permission Denied (Requires ADMIN/OWNER)"),
+        404: error_response_schema(404, "Workspace Not Found"),
+    },
+)
+async def update_workspace(
+    id: uuid.UUID,
+    workspace_update: WorkspaceUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: Annotated[WorkspaceMember, Depends(require_workspace_role(ResourceRole.ADMIN))],
+) -> WorkspaceRead:
+    workspace_repo = WorkspaceRepository(db)
+
+    workspace = await workspace_repo.get_by_id(id)
+    if workspace is None:
+        raise NotFoundException(detail="Workspace not found")
+
+    update_attrs = workspace_update.model_dump(exclude_unset=True)
+    updated_workspace = await workspace_repo.update(workspace, update_attrs)
+    await db.commit()
+    await db.refresh(updated_workspace)
+
+    return WorkspaceRead.model_validate(updated_workspace)
+
+
+@router.delete(
+    "/{id}",
+    response_model=MessageResponse,
+    responses={
+        401: error_response_schema(401, "Unauthorized"),
+        403: error_response_schema(403, "Permission Denied (Requires OWNER)"),
+        404: error_response_schema(404, "Workspace Not Found"),
+    },
+)
+async def delete_workspace(
+    id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: Annotated[WorkspaceMember, Depends(require_workspace_role(ResourceRole.OWNER))],
+) -> MessageResponse:
+    workspace_repo = WorkspaceRepository(db)
+
+    workspace = await workspace_repo.get_by_id(id)
+    if workspace is None:
+        raise NotFoundException(detail="Workspace not found")
+
+    await workspace_repo.delete(workspace)
+    await db.commit()
+
+    return MessageResponse(message="Workspace successfully deleted")
+
+
 @router.post(
     "/{id}/members",
     response_model=WorkspaceMemberRead,
@@ -137,6 +198,38 @@ async def add_workspace_member(
     return WorkspaceMemberRead.model_validate(created_member)
 
 
+@router.patch(
+    "/{id}/members/{user_id}",
+    response_model=WorkspaceMemberRead,
+    responses={
+        401: error_response_schema(401, "Unauthorized"),
+        403: error_response_schema(403, "Permission Denied (Requires ADMIN/OWNER)"),
+        404: error_response_schema(404, "Member Not Found"),
+    },
+)
+async def update_workspace_member_role(
+    id: uuid.UUID,
+    user_id: uuid.UUID,
+    role_update: WorkspaceMemberRoleUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: Annotated[WorkspaceMember, Depends(require_workspace_role(ResourceRole.ADMIN))],
+) -> WorkspaceMemberRead:
+    member_repo = WorkspaceMemberRepository(db)
+
+    member = await member_repo.get_member(id, user_id)
+    if member is None:
+        raise NotFoundException(detail="Workspace member not found")
+
+    if member.role == ResourceRole.OWNER:
+        raise PermissionDeniedException(detail="Cannot modify workspace owner role")
+
+    updated_member = await member_repo.update(member, {"role": role_update.role})
+    await db.commit()
+
+    reloaded_member = await member_repo.get_by_id(updated_member.id)
+    return WorkspaceMemberRead.model_validate(reloaded_member)
+
+
 @router.delete(
     "/{id}/members/{user_id}",
     response_model=MessageResponse,
@@ -173,7 +266,9 @@ async def remove_workspace_member(
     status_code=status.HTTP_201_CREATED,
     responses={
         401: error_response_schema(401, "Unauthorized"),
-        403: error_response_schema(403, "Permission Denied (Requires EDITOR/ADMIN/OWNER)"),
+        403: error_response_schema(
+            403, "Permission Denied (Requires EDITOR/ADMIN/OWNER)"
+        ),
         404: error_response_schema(404, "Workspace Not Found"),
     },
 )
