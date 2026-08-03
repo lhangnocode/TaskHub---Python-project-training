@@ -27,7 +27,7 @@ from src.schemas.task import TaskRead, TaskUpdate
 from src.services.cache_service import invalidate_project_tasks_cache
 from src.services.notification_service import send_task_assignment_email
 
-router = APIRouter(prefix="/tasks", tags=["Tasks"])
+router = APIRouter(tags=["Tasks & Comments"])
 
 
 async def get_task_and_check_access(
@@ -52,7 +52,7 @@ async def get_task_and_check_access(
 
 
 @router.patch(
-    "/{id}",
+    "/tasks/{id}",
     response_model=TaskRead,
     responses={
         401: error_response_schema(401, "Unauthorized"),
@@ -111,7 +111,7 @@ async def update_task(
 
 
 @router.delete(
-    "/{id}",
+    "/tasks/{id}",
     response_model=MessageResponse,
     responses={
         401: error_response_schema(401, "Unauthorized"),
@@ -150,7 +150,7 @@ async def delete_task(
 
 
 @router.post(
-    "/{id}/labels/{label_id}",
+    "/tasks/{id}/labels/{label_id}",
     response_model=MessageResponse,
     status_code=status.HTTP_201_CREATED,
     responses={
@@ -189,8 +189,38 @@ async def attach_label_to_task(
     return MessageResponse(message="Label attached to task successfully")
 
 
+@router.delete(
+    "/tasks/{id}/labels/{label_id}",
+    response_model=MessageResponse,
+    responses={
+        401: error_response_schema(401, "Unauthorized"),
+        403: error_response_schema(403, "Permission Denied"),
+        404: error_response_schema(404, "Task or Label Attachment Not Found"),
+    },
+)
+async def detach_label_from_task(
+    id: uuid.UUID,
+    label_id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> MessageResponse:
+    _, project, _ = await get_task_and_check_access(
+        id, current_user.id, db, ResourceRole.EDITOR
+    )
+    label_repo = LabelRepository(db)
+
+    detached = await label_repo.detach_label_from_task(id, label_id)
+    if not detached:
+        raise NotFoundException(detail="Label is not attached to this task")
+
+    await db.commit()
+    await invalidate_project_tasks_cache(project.id)
+
+    return MessageResponse(message="Label detached from task successfully")
+
+
 @router.post(
-    "/{id}/comments",
+    "/tasks/{id}/comments",
     response_model=CommentRead,
     status_code=status.HTTP_201_CREATED,
     responses={
@@ -224,3 +254,47 @@ async def create_task_comment(
         raise NotFoundException(detail="Comment not found")
 
     return CommentRead.model_validate(created_comment)
+
+
+@router.delete(
+    "/comments/{id}",
+    response_model=MessageResponse,
+    responses={
+        401: error_response_schema(401, "Unauthorized"),
+        403: error_response_schema(403, "Permission Denied"),
+        404: error_response_schema(404, "Comment Not Found"),
+    },
+)
+async def delete_comment(
+    id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> MessageResponse:
+    comment_repo = CommentRepository(db)
+    task_repo = TaskRepository(db)
+    member_repo = WorkspaceMemberRepository(db)
+
+    comment = await comment_repo.get_by_id(id)
+    if comment is None:
+        raise NotFoundException(detail="Comment not found")
+
+    task = await task_repo.get_by_id_with_relations(comment.task_id)
+    if task is None:
+        raise NotFoundException(detail="Associated task not found")
+
+    member = await member_repo.get_member(task.project.workspace_id, current_user.id)
+    if member is None:
+        raise PermissionDeniedException(detail="You are not a member of this workspace")
+
+    is_author = comment.author_id == current_user.id
+    is_admin_or_owner = member.role in (ResourceRole.ADMIN, ResourceRole.OWNER)
+
+    if not (is_author or is_admin_or_owner):
+        raise PermissionDeniedException(
+            detail="You do not have permission to delete this comment"
+        )
+
+    await comment_repo.delete(comment)
+    await db.commit()
+
+    return MessageResponse(message="Comment successfully deleted")

@@ -37,3 +37,13 @@ class LabelRepository(BaseRepository[Label]):
         self.session.add(task_label)
         await self.session.flush()
         return task_label
+
+    async def detach_label_from_task(
+        self, task_id: uuid.UUID, label_id: uuid.UUID
+    ) -> bool:
+        task_label = await self.get_task_label(task_id, label_id)
+        if task_label is not None:
+            await self.session.delete(task_label)
+            await self.session.flush()
+            return True
+        return False
