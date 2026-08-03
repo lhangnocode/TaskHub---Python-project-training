@@ -14,6 +14,7 @@ from src.core.exceptions import (
 from src.core.rbac import ResourceRole
 from src.models.user import User
 from src.models.workspace import WorkspaceMember
+from src.repositories.label_repository import LabelRepository
 from src.repositories.project_repository import ProjectRepository
 from src.repositories.user_repository import UserRepository
 from src.repositories.workspace_repository import (
@@ -21,6 +22,7 @@ from src.repositories.workspace_repository import (
     WorkspaceRepository,
 )
 from src.schemas.common import MessageResponse
+from src.schemas.label import LabelCreate, LabelRead
 from src.schemas.project import ProjectCreate, ProjectRead
 from src.schemas.workspace import (
     WorkspaceCreate,
@@ -293,3 +295,60 @@ async def create_workspace_project(
     await db.refresh(project)
 
     return ProjectRead.model_validate(project)
+
+
+@router.post(
+    "/{id}/labels",
+    response_model=LabelRead,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        401: error_response_schema(401, "Unauthorized"),
+        403: error_response_schema(
+            403, "Permission Denied (Requires EDITOR/ADMIN/OWNER)"
+        ),
+        404: error_response_schema(404, "Workspace Not Found"),
+        409: error_response_schema(409, "Label name already exists"),
+    },
+)
+async def create_workspace_label(
+    id: uuid.UUID,
+    label_in: LabelCreate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: Annotated[WorkspaceMember, Depends(require_workspace_role(ResourceRole.EDITOR))],
+) -> LabelRead:
+    label_repo = LabelRepository(db)
+
+    existing_labels = await label_repo.get_by_workspace(id)
+    if any(lbl.name.lower() == label_in.name.lower() for lbl in existing_labels):
+        raise ConflictException(detail="Label name already exists in workspace")
+
+    label = await label_repo.create(
+        {
+            "workspace_id": id,
+            "name": label_in.name,
+            "color": label_in.color,
+        }
+    )
+    await db.commit()
+    await db.refresh(label)
+
+    return LabelRead.model_validate(label)
+
+
+@router.get(
+    "/{id}/labels",
+    response_model=list[LabelRead],
+    responses={
+        401: error_response_schema(401, "Unauthorized"),
+        403: error_response_schema(403, "Permission Denied"),
+        404: error_response_schema(404, "Workspace Not Found"),
+    },
+)
+async def get_workspace_labels(
+    id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: Annotated[WorkspaceMember, Depends(require_workspace_role(ResourceRole.VIEWER))],
+) -> list[LabelRead]:
+    label_repo = LabelRepository(db)
+    labels = await label_repo.get_by_workspace(id)
+    return [LabelRead.model_validate(lbl) for lbl in labels]
