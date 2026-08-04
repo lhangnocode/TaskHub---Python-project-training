@@ -1,7 +1,7 @@
 import uuid
 from typing import TYPE_CHECKING, List
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import Boolean, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.models.base import Base
@@ -23,6 +23,7 @@ class Project(Base):
     created_by_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     workspace: Mapped["Workspace"] = relationship(
         "Workspace", back_populates="projects"

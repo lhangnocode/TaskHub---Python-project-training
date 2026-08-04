@@ -20,7 +20,8 @@ from src.repositories.project_repository import ProjectRepository
 from src.repositories.task_repository import TaskRepository
 from src.repositories.user_repository import UserRepository
 from src.repositories.workspace_repository import WorkspaceMemberRepository
-from src.schemas.common import PaginatedResponse
+from src.schemas.common import MessageResponse, PaginatedResponse
+from src.schemas.project import ProjectRead, ProjectUpdate
 from src.schemas.task import TaskCreate, TaskRead
 from src.services.cache_service import (
     build_project_tasks_cache_key,
@@ -56,6 +57,100 @@ async def check_project_access(
         )
 
     return project, member
+
+
+@router.get(
+    "/{id}",
+    response_model=ProjectRead,
+    responses={
+        401: error_response_schema(401, "Unauthorized"),
+        403: error_response_schema(403, "Permission Denied"),
+        404: error_response_schema(404, "Project Not Found"),
+    },
+)
+async def get_project(
+    id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> ProjectRead:
+    project, _ = await check_project_access(id, current_user.id, db, ResourceRole.VIEWER)
+    return ProjectRead.model_validate(project)
+
+
+@router.patch(
+    "/{id}",
+    response_model=ProjectRead,
+    responses={
+        401: error_response_schema(401, "Unauthorized"),
+        403: error_response_schema(403, "Permission Denied (Requires EDITOR/ADMIN/OWNER)"),
+        404: error_response_schema(404, "Project Not Found"),
+    },
+)
+async def update_project(
+    id: uuid.UUID,
+    project_update: ProjectUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> ProjectRead:
+    project, _ = await check_project_access(id, current_user.id, db, ResourceRole.EDITOR)
+    project_repo = ProjectRepository(db)
+
+    update_attrs = project_update.model_dump(exclude_unset=True)
+    updated_project = await project_repo.update(project, update_attrs)
+    await db.commit()
+    await db.refresh(updated_project)
+
+    return ProjectRead.model_validate(updated_project)
+
+
+@router.delete(
+    "/{id}",
+    response_model=MessageResponse,
+    responses={
+        401: error_response_schema(401, "Unauthorized"),
+        403: error_response_schema(403, "Permission Denied (Requires ADMIN/OWNER)"),
+        404: error_response_schema(404, "Project Not Found"),
+    },
+)
+async def delete_project(
+    id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> MessageResponse:
+    project, _ = await check_project_access(id, current_user.id, db, ResourceRole.ADMIN)
+    project_repo = ProjectRepository(db)
+
+    await project_repo.delete(project)
+    await db.commit()
+
+    # Invalidate any lingering Redis cache
+    await invalidate_project_tasks_cache(id)
+
+    return MessageResponse(message="Project successfully deleted")
+
+
+@router.post(
+    "/{id}/archive",
+    response_model=ProjectRead,
+    responses={
+        401: error_response_schema(401, "Unauthorized"),
+        403: error_response_schema(403, "Permission Denied (Requires EDITOR/ADMIN/OWNER)"),
+        404: error_response_schema(404, "Project Not Found"),
+    },
+)
+async def archive_project(
+    id: uuid.UUID,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> ProjectRead:
+    project, _ = await check_project_access(id, current_user.id, db, ResourceRole.EDITOR)
+    project_repo = ProjectRepository(db)
+
+    updated_project = await project_repo.update(project, {"is_archived": True})
+    await db.commit()
+    await db.refresh(updated_project)
+
+    return ProjectRead.model_validate(updated_project)
 
 
 @router.get(
