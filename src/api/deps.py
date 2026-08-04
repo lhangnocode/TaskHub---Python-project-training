@@ -15,6 +15,7 @@ from src.models.workspace import WorkspaceMember
 from src.redis_client import get_redis_client
 from src.repositories.user_repository import UserRepository
 from src.repositories.workspace_repository import WorkspaceMemberRepository
+from src.services.auth_service import is_token_blacklisted
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/api/v1/auth/login",
@@ -31,6 +32,9 @@ async def get_current_user(
     db: Annotated[AsyncSession, Depends(get_db)],
     token: Annotated[str, Depends(oauth2_scheme)],
 ) -> User:
+    if await is_token_blacklisted(token):
+        raise CredentialsException(detail="Token has been revoked")
+
     payload = decode_token(token)
     if payload is None:
         raise CredentialsException(detail="Could not validate access token")

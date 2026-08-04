@@ -1,3 +1,7 @@
+import datetime
+import hashlib
+import logging
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import (
@@ -8,13 +12,57 @@ from src.core.exceptions import (
 from src.core.security import (
     create_access_token,
     create_refresh_token,
+    decode_token,
     get_password_hash,
     verify_password,
 )
 from src.models.user import User
+from src.redis_client import get_redis_client
 from src.repositories.user_repository import UserRepository
 from src.schemas.auth import Token
 from src.schemas.user import UserCreate
+
+logger = logging.getLogger(__name__)
+
+
+def _get_token_key(token: str) -> str:
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    return f"blacklist:token:{token_hash}"
+
+
+async def revoke_token(token: str) -> bool:
+    payload = decode_token(token)
+    if payload is None:
+        return False
+
+    exp = payload.get("exp")
+    if not exp:
+        return False
+
+    now_ts = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+    remaining_ttl = int(exp) - now_ts
+
+    if remaining_ttl > 0:
+        try:
+            redis_conn = await get_redis_client()
+            key = _get_token_key(token)
+            await redis_conn.setex(key, remaining_ttl, "revoked")
+            logger.info("Revoked JWT token (TTL: %ds)", remaining_ttl)
+            return True
+        except Exception as exc:
+            logger.warning("Failed to store token revocation in Redis: %s", exc)
+    return False
+
+
+async def is_token_blacklisted(token: str) -> bool:
+    try:
+        redis_conn = await get_redis_client()
+        key = _get_token_key(token)
+        is_revoked = await redis_conn.get(key)
+        return is_revoked is not None
+    except Exception as exc:
+        logger.warning("Failed to check token revocation in Redis: %s", exc)
+        return False
 
 
 async def register_user(db: AsyncSession, user_in: UserCreate) -> User:

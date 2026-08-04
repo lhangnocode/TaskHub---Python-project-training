@@ -11,6 +11,10 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str = Field(..., example="eyJhbGciOiJIUzI1NiIsInR5cCI6...")
 
 
+class LogoutRequest(BaseModel):
+    refresh_token: str | None = Field(None, example="eyJhbGciOiJIUzI1NiIsInR5cCI6...")
+
+
 class Token(BaseModel):
     access_token: str
     refresh_token: str
