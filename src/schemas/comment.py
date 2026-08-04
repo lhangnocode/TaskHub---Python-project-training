@@ -7,7 +7,9 @@ from src.schemas.user import UserRead
 
 
 class CommentCreate(BaseModel):
-    content: str = Field(..., min_length=1, max_length=2000, example="Great work on this task!")
+    content: str = Field(
+        ..., min_length=1, max_length=2000, example="Great work on this task!"
+    )
 
 
 class CommentRead(BaseModel):

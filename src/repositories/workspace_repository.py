@@ -10,7 +10,6 @@ from src.repositories.base import BaseRepository
 
 
 class WorkspaceRepository(BaseRepository[Workspace]):
-
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(Workspace, session)
 
@@ -29,7 +28,6 @@ class WorkspaceRepository(BaseRepository[Workspace]):
 
 
 class WorkspaceMemberRepository(BaseRepository[WorkspaceMember]):
-
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(WorkspaceMember, session)
 

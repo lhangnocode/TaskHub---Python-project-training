@@ -4,7 +4,10 @@ from src.repositories.label_repository import LabelRepository
 from src.repositories.project_repository import ProjectRepository
 from src.repositories.task_repository import TaskRepository
 from src.repositories.user_repository import UserRepository
-from src.repositories.workspace_repository import WorkspaceMemberRepository, WorkspaceRepository
+from src.repositories.workspace_repository import (
+    WorkspaceMemberRepository,
+    WorkspaceRepository,
+)
 
 __all__ = [
     "BaseRepository",

@@ -13,7 +13,9 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
     """Middleware for request logging, process time calculation, and Request-ID header injection."""
 
     async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Response] # type: ignore[override]
+        self,
+        request: Request,
+        call_next: Callable[[Request], Response],  # type: ignore[override]
     ) -> Response:
         request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
         request.state.request_id = request_id

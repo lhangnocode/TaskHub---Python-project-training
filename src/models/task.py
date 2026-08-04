@@ -1,9 +1,10 @@
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum as SQLEnum, ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.models.base import Base
@@ -66,9 +67,9 @@ class Task(Base):
     reporter: Mapped["User"] = relationship(
         "User", foreign_keys=[reporter_id], back_populates="reported_tasks"
     )
-    comments: Mapped[List["Comment"]] = relationship(
+    comments: Mapped[list["Comment"]] = relationship(
         "Comment", back_populates="task", cascade="all, delete-orphan"
     )
-    task_labels: Mapped[List["TaskLabel"]] = relationship(
+    task_labels: Mapped[list["TaskLabel"]] = relationship(
         "TaskLabel", back_populates="task", cascade="all, delete-orphan"
     )

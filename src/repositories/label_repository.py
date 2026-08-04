@@ -9,13 +9,10 @@ from src.repositories.base import BaseRepository
 
 
 class LabelRepository(BaseRepository[Label]):
-
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(Label, session)
 
-    async def get_by_workspace(
-        self, workspace_id: uuid.UUID
-    ) -> Sequence[Label]:
+    async def get_by_workspace(self, workspace_id: uuid.UUID) -> Sequence[Label]:
         stmt = select(Label).where(Label.workspace_id == workspace_id)
         result = await self.session.execute(stmt)
         return result.scalars().all()

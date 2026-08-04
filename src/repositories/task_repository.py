@@ -10,7 +10,6 @@ from src.repositories.base import BaseRepository
 
 
 class TaskRepository(BaseRepository[Task]):
-
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(Task, session)
 
@@ -37,7 +36,9 @@ class TaskRepository(BaseRepository[Task]):
         limit: int = 10,
     ) -> tuple[Sequence[Task], int]:
         query = select(Task).where(Task.project_id == project_id)
-        count_query = select(func.count()).select_from(Task).where(Task.project_id == project_id)
+        count_query = (
+            select(func.count()).select_from(Task).where(Task.project_id == project_id)
+        )
 
         if status is not None:
             query = query.where(Task.status == status)

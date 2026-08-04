@@ -53,11 +53,7 @@ def error_response_schema(status_code: int, description: str) -> dict[str, Any]:
     return {
         "status_code": status_code,
         "description": description,
-        "content": {
-            "application/json": {
-                "example": {"detail": description}
-            }
-        },
+        "content": {"application/json": {"example": {"detail": description}}},
     }
 
 

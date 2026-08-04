@@ -1,5 +1,5 @@
 import uuid
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 from sqlalchemy import ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -24,16 +24,14 @@ class Label(Base):
     color: Mapped[str] = mapped_column(String(50), default="#3B82F6", nullable=False)
 
     workspace: Mapped["Workspace"] = relationship("Workspace", back_populates="labels")
-    task_labels: Mapped[List["TaskLabel"]] = relationship(
+    task_labels: Mapped[list["TaskLabel"]] = relationship(
         "TaskLabel", back_populates="label", cascade="all, delete-orphan"
     )
 
 
 class TaskLabel(Base):
     __tablename__ = "task_labels"
-    __table_args__ = (
-        UniqueConstraint("task_id", "label_id", name="uq_task_label"),
-    )
+    __table_args__ = (UniqueConstraint("task_id", "label_id", name="uq_task_label"),)
 
     task_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True

@@ -73,7 +73,9 @@ async def get_project(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> ProjectRead:
-    project, _ = await check_project_access(id, current_user.id, db, ResourceRole.VIEWER)
+    project, _ = await check_project_access(
+        id, current_user.id, db, ResourceRole.VIEWER
+    )
     return ProjectRead.model_validate(project)
 
 
@@ -82,7 +84,9 @@ async def get_project(
     response_model=ProjectRead,
     responses={
         401: error_response_schema(401, "Unauthorized"),
-        403: error_response_schema(403, "Permission Denied (Requires EDITOR/ADMIN/OWNER)"),
+        403: error_response_schema(
+            403, "Permission Denied (Requires EDITOR/ADMIN/OWNER)"
+        ),
         404: error_response_schema(404, "Project Not Found"),
     },
 )
@@ -92,7 +96,9 @@ async def update_project(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> ProjectRead:
-    project, _ = await check_project_access(id, current_user.id, db, ResourceRole.EDITOR)
+    project, _ = await check_project_access(
+        id, current_user.id, db, ResourceRole.EDITOR
+    )
     project_repo = ProjectRepository(db)
 
     update_attrs = project_update.model_dump(exclude_unset=True)
@@ -134,7 +140,9 @@ async def delete_project(
     response_model=ProjectRead,
     responses={
         401: error_response_schema(401, "Unauthorized"),
-        403: error_response_schema(403, "Permission Denied (Requires EDITOR/ADMIN/OWNER)"),
+        403: error_response_schema(
+            403, "Permission Denied (Requires EDITOR/ADMIN/OWNER)"
+        ),
         404: error_response_schema(404, "Project Not Found"),
     },
 )
@@ -143,7 +151,9 @@ async def archive_project(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> ProjectRead:
-    project, _ = await check_project_access(id, current_user.id, db, ResourceRole.EDITOR)
+    project, _ = await check_project_access(
+        id, current_user.id, db, ResourceRole.EDITOR
+    )
     project_repo = ProjectRepository(db)
 
     updated_project = await project_repo.update(project, {"is_archived": True})

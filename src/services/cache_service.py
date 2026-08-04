@@ -29,7 +29,7 @@ async def get_cached_project_tasks(cache_key: str) -> dict[str, Any] | None:
         data = await redis_conn.get(cache_key)
         if data:
             logger.debug("Redis cache HIT for key: %s", cache_key)
-            return json.loads(data) # type: ignore[no-any-return]
+            return json.loads(data)  # type: ignore[no-any-return]
     except Exception as exc:
         logger.warning("Redis read error for key %s: %s", cache_key, exc)
     return None
@@ -55,6 +55,8 @@ async def invalidate_project_tasks_cache(project_id: uuid.UUID) -> None:
             keys.append(key)
         if keys:
             await redis_conn.delete(*keys)
-            logger.info("Invalidated %d Redis cache keys for project %s", len(keys), project_id)
+            logger.info(
+                "Invalidated %d Redis cache keys for project %s", len(keys), project_id
+            )
     except Exception as exc:
         logger.warning("Redis invalidation error for project %s: %s", project_id, exc)
