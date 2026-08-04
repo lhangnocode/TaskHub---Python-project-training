@@ -1,4 +1,7 @@
-FROM python:3.12-slim
+# ==============================================================================
+# Stage 1: Builder Stage
+# ==============================================================================
+FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
@@ -13,8 +16,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY pyproject.toml .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir .
+    pip install --no-cache-dir --prefix=/install .
 
+# ==============================================================================
+# Stage 2: Runtime Stage
+# ==============================================================================
+FROM python:3.12-slim AS runner
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/install/bin:$PATH" \
+    PYTHONPATH="/install/lib/python3.12/site-packages:$PYTHONPATH"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /install /install
 COPY . .
 
 EXPOSE 8000
