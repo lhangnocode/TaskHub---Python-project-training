@@ -6,7 +6,6 @@ from src.repositories.base import BaseRepository
 
 
 class UserRepository(BaseRepository[User]):
-
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(User, session)
 

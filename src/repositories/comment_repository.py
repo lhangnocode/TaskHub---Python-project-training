@@ -10,7 +10,6 @@ from src.repositories.base import BaseRepository
 
 
 class CommentRepository(BaseRepository[Comment]):
-
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(Comment, session)
 

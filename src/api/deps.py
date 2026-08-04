@@ -1,9 +1,10 @@
 import uuid
-from typing import Annotated, Callable
+from collections.abc import Callable
+from typing import Annotated
 
+import redis.asyncio as redis
 from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
-import redis.asyncio as redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.exceptions import CredentialsException, PermissionDeniedException

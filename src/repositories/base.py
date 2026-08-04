@@ -11,7 +11,6 @@ ModelType = TypeVar("ModelType", bound=Base)
 
 
 class BaseRepository(Generic[ModelType]):
-
     def __init__(self, model: type[ModelType], session: AsyncSession) -> None:
         self.model = model
         self.session = session
@@ -21,9 +20,7 @@ class BaseRepository(Generic[ModelType]):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_multi(
-        self, skip: int = 0, limit: int = 100
-    ) -> Sequence[ModelType]:
+    async def get_multi(self, skip: int = 0, limit: int = 100) -> Sequence[ModelType]:
         stmt = select(self.model).offset(skip).limit(limit)
         result = await self.session.execute(stmt)
         return result.scalars().all()
@@ -39,9 +36,7 @@ class BaseRepository(Generic[ModelType]):
         await self.session.flush()
         return db_obj
 
-    async def update(
-        self, db_obj: ModelType, attributes: dict[str, Any]
-    ) -> ModelType:
+    async def update(self, db_obj: ModelType, attributes: dict[str, Any]) -> ModelType:
         for field, value in attributes.items():
             if hasattr(db_obj, field) and value is not None:
                 setattr(db_obj, field, value)

@@ -1,5 +1,4 @@
 import logging
-from typing import Any
 
 from fastapi import BackgroundTasks
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
@@ -54,4 +53,6 @@ def send_task_assignment_email(
         background_tasks.add_task(fastmail.send_message, message)
         logger.info("Queued task assignment email notification to %s", recipient_email)
     except Exception as exc:
-        logger.error("Failed to queue task assignment email to %s: %s", recipient_email, exc)
+        logger.error(
+            "Failed to queue task assignment email to %s: %s", recipient_email, exc
+        )

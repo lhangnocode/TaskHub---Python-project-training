@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -21,18 +21,18 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    owned_workspaces: Mapped[List["Workspace"]] = relationship(
+    owned_workspaces: Mapped[list["Workspace"]] = relationship(
         "Workspace", back_populates="owner", cascade="all, delete-orphan"
     )
-    memberships: Mapped[List["WorkspaceMember"]] = relationship(
+    memberships: Mapped[list["WorkspaceMember"]] = relationship(
         "WorkspaceMember", back_populates="user", cascade="all, delete-orphan"
     )
-    assigned_tasks: Mapped[List["Task"]] = relationship(
+    assigned_tasks: Mapped[list["Task"]] = relationship(
         "Task", foreign_keys="Task.assignee_id", back_populates="assignee"
     )
-    reported_tasks: Mapped[List["Task"]] = relationship(
+    reported_tasks: Mapped[list["Task"]] = relationship(
         "Task", foreign_keys="Task.reporter_id", back_populates="reporter"
     )
-    comments: Mapped[List["Comment"]] = relationship(
+    comments: Mapped[list["Comment"]] = relationship(
         "Comment", back_populates="author", cascade="all, delete-orphan"
     )

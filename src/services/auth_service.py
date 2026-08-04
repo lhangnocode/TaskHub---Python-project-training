@@ -39,7 +39,7 @@ async def revoke_token(token: str) -> bool:
     if not exp:
         return False
 
-    now_ts = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+    now_ts = int(datetime.datetime.now(datetime.UTC).timestamp())
     remaining_ttl = int(exp) - now_ts
 
     if remaining_ttl > 0:

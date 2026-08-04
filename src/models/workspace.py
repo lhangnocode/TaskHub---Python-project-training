@@ -1,7 +1,8 @@
 import uuid
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
-from sqlalchemy import Enum as SQLEnum, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.rbac import ResourceRole
@@ -23,13 +24,13 @@ class Workspace(Base):
     )
 
     owner: Mapped["User"] = relationship("User", back_populates="owned_workspaces")
-    members: Mapped[List["WorkspaceMember"]] = relationship(
+    members: Mapped[list["WorkspaceMember"]] = relationship(
         "WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan"
     )
-    projects: Mapped[List["Project"]] = relationship(
+    projects: Mapped[list["Project"]] = relationship(
         "Project", back_populates="workspace", cascade="all, delete-orphan"
     )
-    labels: Mapped[List["Label"]] = relationship(
+    labels: Mapped[list["Label"]] = relationship(
         "Label", back_populates="workspace", cascade="all, delete-orphan"
     )
 
@@ -52,7 +53,5 @@ class WorkspaceMember(Base):
         nullable=False,
     )
 
-    workspace: Mapped["Workspace"] = relationship(
-        "Workspace", back_populates="members"
-    )
+    workspace: Mapped["Workspace"] = relationship("Workspace", back_populates="members")
     user: Mapped["User"] = relationship("User", back_populates="memberships")
