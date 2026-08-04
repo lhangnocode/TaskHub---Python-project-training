@@ -1,4 +1,4 @@
-from src.schemas.auth import Token, TokenPayload
+from src.schemas.auth import LogoutRequest, Token, TokenPayload
 from src.schemas.comment import CommentCreate, CommentRead
 from src.schemas.common import MessageResponse, PaginatedResponse
 from src.schemas.label import LabelCreate, LabelRead
@@ -17,6 +17,7 @@ from src.schemas.workspace import (
 __all__ = [
     "Token",
     "TokenPayload",
+    "LogoutRequest",
     "UserCreate",
     "UserRead",
     "UserUpdate",
